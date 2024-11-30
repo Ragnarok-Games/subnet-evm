@@ -31,6 +31,7 @@ import (
 
 	"github.com/ava-labs/subnet-evm/core"
 	"github.com/ava-labs/subnet-evm/core/txpool/blobpool"
+	"github.com/ava-labs/subnet-evm/core/txpool/gaslesspool"
 	"github.com/ava-labs/subnet-evm/core/txpool/legacypool"
 	"github.com/ava-labs/subnet-evm/eth/gasprice"
 	"github.com/ava-labs/subnet-evm/miner"
@@ -117,6 +118,7 @@ type Config struct {
 	// Transaction pool options
 	TxPool   legacypool.Config
 	BlobPool blobpool.Config
+	GaslessPool gaslesspool.Config
 
 	// Gas Price Oracle options
 	GPO gasprice.Config
