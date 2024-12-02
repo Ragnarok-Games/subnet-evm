@@ -124,7 +124,7 @@ func ValidateTransaction(tx *types.Transaction, head *types.Header, signer types
 	if err != nil {
 		return err
 	}
-	if txGas := tx.Gas(); txGas < intrGas {
+	if txGas := tx.Gas(); txGas < intrGas && tx.Type() != types.GaslessTxType {
 		return fmt.Errorf("%w: address %v tx gas (%v), minimum needed %v", core.ErrIntrinsicGas, from.Hex(), txGas, intrGas)
 	}
 	// Ensure the gasprice is high enough to cover the requirement of the calling pool
@@ -226,9 +226,9 @@ func ValidateTransactionWithState(tx *types.Transaction, signer types.Signer, op
 		log.Error("Transaction sender recovery failed", "err", err)
 		return err
 	}
-
+	
 	// Drop the transaction if the gas fee cap is below the pool's minimum fee
-	if opts.MinimumFee != nil && tx.GasFeeCapIntCmp(opts.MinimumFee) < 0 {
+	if opts.MinimumFee != nil && tx.GasFeeCapIntCmp(opts.MinimumFee) < 0 && tx.Type() != types.GaslessTxType {
 		return fmt.Errorf("%w: address %s have gas fee cap (%d) < pool minimum fee cap (%d)", ErrUnderpriced, from.Hex(), tx.GasFeeCap(), opts.MinimumFee)
 	}
 

@@ -243,15 +243,19 @@ func (w *worker) commitNewWork(predicateContext *precompileconfig.PredicateConte
 	if env.header.ExcessBlobGas != nil {
 		filter.BlobFee = uint256.MustFromBig(eip4844.CalcBlobFee(*env.header.ExcessBlobGas))
 	}
-	filter.OnlyPlainTxs, filter.OnlyBlobTxs = true, false
+	filter.OnlyPlainTxs, filter.OnlyBlobTxs, filter.OnlyGaslessTxs = true, false, false
 	pendingPlainTxs := w.eth.TxPool().Pending(filter)
 
-	filter.OnlyPlainTxs, filter.OnlyBlobTxs = false, true
+	filter.OnlyPlainTxs, filter.OnlyBlobTxs, filter.OnlyGaslessTxs = false, true, false
 	pendingBlobTxs := w.eth.TxPool().Pending(filter)
+
+	filter.OnlyPlainTxs, filter.OnlyBlobTxs, filter.OnlyGaslessTxs = false, false, true
+	pendingGaslessTxs := w.eth.TxPool().Pending(filter)
 
 	// Split the pending transactions into locals and remotes.
 	localPlainTxs, remotePlainTxs := make(map[common.Address][]*txpool.LazyTransaction), pendingPlainTxs
 	localBlobTxs, remoteBlobTxs := make(map[common.Address][]*txpool.LazyTransaction), pendingBlobTxs
+	localGaslessTxs, remoteGaslessTxs := make(map[common.Address][]*txpool.LazyTransaction), pendingGaslessTxs
 	for _, account := range w.eth.TxPool().Locals() {
 		if txs := remotePlainTxs[account]; len(txs) > 0 {
 			delete(remotePlainTxs, account)
@@ -261,19 +265,26 @@ func (w *worker) commitNewWork(predicateContext *precompileconfig.PredicateConte
 			delete(remoteBlobTxs, account)
 			localBlobTxs[account] = txs
 		}
+		if txs := remoteGaslessTxs[account]; len(txs) > 0 {
+			delete(remoteGaslessTxs, account)
+			localGaslessTxs[account] = txs
+		}
 	}
 	// Fill the block with all available pending transactions.
-	if len(localPlainTxs) > 0 || len(localBlobTxs) > 0 {
+	if len(localPlainTxs) > 0 || len(localBlobTxs) > 0 || len(localGaslessTxs) > 0 {
 		plainTxs := newTransactionsByPriceAndNonce(env.signer, localPlainTxs, env.header.BaseFee)
 		blobTxs := newTransactionsByPriceAndNonce(env.signer, localBlobTxs, env.header.BaseFee)
+		gaslessTxs := newTransactionsByPriceAndNonce(env.signer, localGaslessTxs, common.Big0)
 
-		w.commitTransactions(env, plainTxs, blobTxs, env.header.Coinbase)
+		w.commitTransactions(env, plainTxs, blobTxs, gaslessTxs, env.header.Coinbase)
+		log.Info("Localplaintxs", "gasless", gaslessTxs)
 	}
-	if len(remotePlainTxs) > 0 || len(remoteBlobTxs) > 0 {
+	if len(remotePlainTxs) > 0 || len(remoteBlobTxs) > 0 || len(remoteGaslessTxs) > 0 {
 		plainTxs := newTransactionsByPriceAndNonce(env.signer, remotePlainTxs, env.header.BaseFee)
 		blobTxs := newTransactionsByPriceAndNonce(env.signer, remoteBlobTxs, env.header.BaseFee)
+		gaslessTxs := newTransactionsByPriceAndNonce(env.signer, remoteBlobTxs, env.header.BaseFee)
 
-		w.commitTransactions(env, plainTxs, blobTxs, env.header.Coinbase)
+		w.commitTransactions(env, plainTxs, blobTxs, gaslessTxs, env.header.Coinbase)
 	}
 
 	return w.commit(env)
@@ -367,7 +378,7 @@ func (w *worker) applyTransaction(env *environment, tx *types.Transaction, coinb
 	return receipt, err
 }
 
-func (w *worker) commitTransactions(env *environment, plainTxs, blobTxs *transactionsByPriceAndNonce, coinbase common.Address) {
+func (w *worker) commitTransactions(env *environment, plainTxs, blobTxs, gaslessTxs *transactionsByPriceAndNonce, coinbase common.Address) {
 	for {
 		// If we don't have enough gas for any further transactions then we're done.
 		if env.gasPool.Gas() < params.TxGas {
@@ -395,17 +406,22 @@ func (w *worker) commitTransactions(env *environment, plainTxs, blobTxs *transac
 		)
 		pltx, ptip := plainTxs.Peek()
 		bltx, btip := blobTxs.Peek()
+		gltx, gtip := gaslessTxs.Peek()
 
 		switch {
-		case pltx == nil:
+		case pltx == nil && gltx == nil:
 			txs, ltx = blobTxs, bltx
-		case bltx == nil:
+		case bltx == nil && gltx == nil:
 			txs, ltx = plainTxs, pltx
+		case pltx == nil && bltx == nil:
+			txs, ltx = gaslessTxs, gltx
 		default:
-			if ptip.Lt(btip) {
+			if ptip.Lt(btip) && gtip.Lt(btip) {
 				txs, ltx = blobTxs, bltx
-			} else {
+			} else if btip.Lt(ptip) && gtip.Lt(ptip) {
 				txs, ltx = plainTxs, pltx
+			} else {
+				txs, ltx = gaslessTxs, gltx
 			}
 		}
 		if ltx == nil {

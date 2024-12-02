@@ -26,7 +26,7 @@ func CheckPredicates(rules params.Rules, predicateContext *precompileconfig.Pred
 	if err != nil {
 		return nil, err
 	}
-	if tx.Gas() < intrinsicGas {
+	if tx.Gas() < intrinsicGas && tx.Type() != types.GaslessTxType {
 		return nil, fmt.Errorf("%w for predicate verification (%d) < intrinsic gas (%d)", ErrIntrinsicGas, tx.Gas(), intrinsicGas)
 	}
 

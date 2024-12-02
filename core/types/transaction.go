@@ -365,6 +365,8 @@ func (tx *Transaction) GasTipCapIntCmp(other *big.Int) int {
 func (tx *Transaction) EffectiveGasTip(baseFee *big.Int) (*big.Int, error) {
 	if baseFee == nil {
 		return tx.GasTipCap(), nil
+	} else if tx.Type() == GaslessTxType {
+		return common.Big0, nil
 	}
 	var err error
 	gasFeeCap := tx.GasFeeCap()

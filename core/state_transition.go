@@ -40,6 +40,7 @@ import (
 	"github.com/ethereum/go-ethereum/common"
 	cmath "github.com/ethereum/go-ethereum/common/math"
 	"github.com/ethereum/go-ethereum/crypto/kzg4844"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
 )
 
@@ -204,6 +205,7 @@ type Message struct {
 	// account nonce in state. It also disables checking that the sender is an EOA.
 	// This field will be set to true for operations like RPC eth_call.
 	SkipAccountChecks bool
+	IsGaslessTx bool
 }
 
 // TransactionToMessage converts a transaction into a Message.
@@ -219,6 +221,7 @@ func TransactionToMessage(tx *types.Transaction, s types.Signer, baseFee *big.In
 		Data:              tx.Data(),
 		AccessList:        tx.AccessList(),
 		SkipAccountChecks: false,
+		IsGaslessTx:     tx.Type() == types.GaslessTxType,
 		BlobHashes:        tx.BlobHashes(),
 		BlobGasFeeCap:     tx.BlobGasFeeCap(),
 	}
@@ -299,6 +302,9 @@ func (st *StateTransition) buyGas() error {
 		balanceCheck.SetUint64(st.msg.GasLimit)
 		balanceCheck = balanceCheck.Mul(balanceCheck, st.msg.GasFeeCap)
 		balanceCheck.Add(balanceCheck, st.msg.Value)
+	}
+	if st.msg.IsGaslessTx {
+		balanceCheck.Set(st.msg.Value)
 	}
 	if st.evm.ChainConfig().IsCancun(st.evm.Context.BlockNumber, st.evm.Context.Time) {
 		if blobGas := st.blobGasUsed(); blobGas > 0 {
@@ -384,7 +390,7 @@ func (st *StateTransition) preCheck() error {
 			}
 			// This will panic if baseFee is nil, but basefee presence is verified
 			// as part of header validation.
-			if msg.GasFeeCap.Cmp(st.evm.Context.BaseFee) < 0 {
+			if msg.GasFeeCap.Cmp(st.evm.Context.BaseFee) < 0 && !msg.IsGaslessTx {
 				return fmt.Errorf("%w: address %v, maxFeePerGas: %s, baseFee: %s", ErrFeeCapTooLow,
 					msg.From.Hex(), msg.GasFeeCap, st.evm.Context.BaseFee)
 			}
@@ -448,6 +454,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// 7. caller has enough balance to cover asset transfer for **topmost** call
 
 	// Check clauses 1-4, buy gas if everything is correct
+	
 	if err := st.preCheck(); err != nil {
 		return nil, err
 	}
@@ -464,14 +471,21 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 		sender           = vm.AccountRef(msg.From)
 		rules            = st.evm.ChainConfig().Rules(st.evm.Context.BlockNumber, st.evm.Context.Time)
 		contractCreation = msg.To == nil
+		gas          	 = uint64(0);
 	)
 
 	// Check clauses 4-5, subtract intrinsic gas if everything is correct
-	gas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules)
-	if err != nil {
-		return nil, err
+	if !msg.IsGaslessTx {
+		intrinsicGas, err := IntrinsicGas(msg.Data, msg.AccessList, contractCreation, rules)		
+		if err != nil {
+			return nil, err
+		}
+		gas = intrinsicGas	
 	}
-	if st.gasRemaining < gas {
+
+
+	
+	if st.gasRemaining < gas && !msg.IsGaslessTx {
 		return nil, fmt.Errorf("%w: have %d, want %d", ErrIntrinsicGas, st.gasRemaining, gas)
 	}
 	st.gasRemaining -= gas
@@ -494,7 +508,7 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	// - prepare accessList(post-berlin)
 	// - reset transient storage(eip 1153)
 	st.state.Prepare(rules, msg.From, st.evm.Context.Coinbase, msg.To, vm.ActivePrecompiles(rules), msg.AccessList)
-
+	log.Info("TEST gas", "initialGas", st.initialGas, "gasRemaining", st.gasRemaining)
 	var (
 		ret   []byte
 		vmerr error // vm errors do not effect consensus and are therefore not assigned to err
@@ -510,10 +524,14 @@ func (st *StateTransition) TransitionDb() (*ExecutionResult, error) {
 	if overflow {
 		return nil, ErrGasUintOverflow
 	}
-	gasRefund := st.refundGas(rules.IsSubnetEVM)
-	fee := new(uint256.Int).SetUint64(st.gasUsed())
-	fee.Mul(fee, price)
-	st.state.AddBalance(st.evm.Context.Coinbase, fee)
+	gasRefund := uint64(0)
+
+	if !msg.IsGaslessTx {
+		gasRefund = st.refundGas(rules.IsSubnetEVM)
+		fee := new(uint256.Int).SetUint64(st.gasUsed())
+		fee.Mul(fee, price)
+		st.state.AddBalance(st.evm.Context.Coinbase, fee)		
+	}
 
 	return &ExecutionResult{
 		UsedGas:     st.gasUsed(),

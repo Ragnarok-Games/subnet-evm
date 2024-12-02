@@ -34,7 +34,7 @@ import (
 	"github.com/ethereum/go-ethereum/rlp"
 )
 
-// DynamicFeeTx represents an EIP-1559 transaction.
+// GaslessTx represents an EIP-1559 transaction.
 type GaslessTx struct {
 	ChainID    *big.Int
 	Nonce      uint64

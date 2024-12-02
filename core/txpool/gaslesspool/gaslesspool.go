@@ -302,12 +302,13 @@ func New(config Config, chain BlockChain) *GaslessPool {
 	return pool
 }
 
-// Filter returns whether the given transaction can be consumed by the legacy
-// pool, specifically, whether it is a Legacy, AccessList or Dynamic transaction.
+// Filter returns whether the given transaction can be consumed by the gasless
+// pool, specifically, whether it is a Gasless transaction.
 func (pool *GaslessPool) Filter(tx *types.Transaction) bool {
+	log.Debug("Filtering transaction", "hash", tx.Hash())
 	switch tx.Type() {
 	case types.GaslessTxType:
-		return tx.Gas() == 0
+		return true
 	default:
 		return false
 	}
@@ -322,7 +323,7 @@ func (pool *GaslessPool) Init(gasTip uint64, head *types.Header, reserve txpool.
 	pool.reserve = reserve
 
 	// Set the basic pool parameters
-	pool.gasTip.Store(uint256.NewInt(gasTip))
+	pool.gasTip.Store(uint256.NewInt(0))
 
 	// Initialize the state with head block, or fallback to empty one in
 	// case the head state is not available (might occur when node is not
@@ -558,7 +559,7 @@ func (pool *GaslessPool) ContentFrom(addr common.Address) ([]*types.Transaction,
 func (pool *GaslessPool) Pending(filter txpool.PendingFilter) map[common.Address][]*txpool.LazyTransaction {
 	// If only blob transactions are requested, this pool is unsuitable as it
 	// contains none, don't even bother.
-	if filter.OnlyBlobTxs {
+	if filter.OnlyBlobTxs || filter.OnlyPlainTxs {
 		return nil
 	}
 	pool.mu.Lock()
@@ -583,7 +584,6 @@ func (pool *GaslessPool) Pending(filter txpool.PendingFilter) map[common.Address
 	pending := make(map[common.Address][]*txpool.LazyTransaction, len(pool.pending))
 	for addr, list := range pool.pending {
 		txs := list.Flatten()
-
 		// If the miner requests tip enforcement, cap the lists now
 		if minTipBig != nil && !pool.locals.contains(addr) {
 			for i, tx := range txs {
@@ -774,7 +774,7 @@ func (pool *GaslessPool) add(tx *types.Transaction, local bool) (replaced bool, 
 	if uint64(pool.all.Slots()+numSlots(tx)) > pool.config.GlobalSlots+pool.config.GlobalQueue {
 		// If the new transaction is underpriced, don't accept it
 		if !isLocal && pool.priced.Underpriced(tx) {
-			log.Trace("Discarding underpriced transaction", "hash", hash, "gasTipCap", tx.GasTipCap(), "gasFeeCap", tx.GasFeeCap())
+			log.Debug("Discarding underpriced transaction", "hash", hash, "gasTipCap", tx.GasTipCap(), "gasFeeCap", tx.GasFeeCap())
 			underpricedTxMeter.Mark(1)
 			return false, txpool.ErrUnderpriced
 		}

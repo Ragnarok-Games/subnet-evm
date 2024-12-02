@@ -322,6 +322,30 @@ func (c *BoundContract) createDynamicTx(opts *TransactOpts, contract *common.Add
 	return types.NewTx(baseTx), nil
 }
 
+func (c *BoundContract) createGaslessTx(opts *TransactOpts, contract *common.Address, input []byte, head *types.Header) (*types.Transaction, error) {
+	// Normalize value
+	value := opts.Value
+	if value == nil {
+		value = new(big.Int)
+	}
+	
+	// create the transaction
+	nonce, err := c.getNonce(opts)
+	if err != nil {
+		return nil, err
+	}
+	baseTx := &types.GaslessTx{
+		To:        contract,
+		Nonce:     nonce,
+		GasFeeCap: common.Big0,
+		GasTipCap: common.Big0,
+		Gas:       0,
+		Value:     value,
+		Data:      input,
+	}
+	return types.NewTx(baseTx), nil
+}
+
 func (c *BoundContract) createLegacyTx(opts *TransactOpts, contract *common.Address, input []byte) (*types.Transaction, error) {
 	if opts.GasFeeCap != nil || opts.GasTipCap != nil {
 		return nil, errors.New("maxFeePerGas or maxPriorityFeePerGas specified but london is not active yet")
@@ -406,7 +430,9 @@ func (c *BoundContract) transact(opts *TransactOpts, contract *common.Address, i
 		rawTx *types.Transaction
 		err   error
 	)
-	if opts.GasPrice != nil {
+	if opts.GasPrice == common.Big0 || opts.GasFeeCap == common.Big0 || opts.GasTipCap == common.Big0 {
+		rawTx, err = c.createGaslessTx(opts, contract, input, nil)
+	} else if opts.GasPrice != nil {
 		rawTx, err = c.createLegacyTx(opts, contract, input)
 	} else if opts.GasFeeCap != nil && opts.GasTipCap != nil {
 		rawTx, err = c.createDynamicTx(opts, contract, input, nil)

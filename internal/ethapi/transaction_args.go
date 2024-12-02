@@ -145,7 +145,6 @@ func (args *TransactionArgs) setDefaults(ctx context.Context, b Backend, skipGas
 			return errors.New(`contract creation without any data provided`)
 		}
 	}
-
 	if args.Gas == nil {
 		if skipGasEstimation { // Skip gas usage estimation if a precise gas limit is not critical, e.g., in non-transaction calls.
 			gas := hexutil.Uint64(b.RPCGasCap())
@@ -501,7 +500,7 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			}
 		}
 
-	case args.MaxFeePerGas != nil:
+	case args.MaxFeePerGas != nil && args.MaxFeePerGas.ToInt().Cmp(common.Big0) == 1:
 		al := types.AccessList{}
 		if args.AccessList != nil {
 			al = *args.AccessList
@@ -528,6 +527,23 @@ func (args *TransactionArgs) toTransaction() *types.Transaction {
 			Value:      (*big.Int)(args.Value),
 			Data:       args.data(),
 			AccessList: *args.AccessList,
+		}
+	
+	case args.MaxFeePerGas.ToInt().Cmp(common.Big0) == 0:
+		al := types.AccessList{}
+		if args.AccessList != nil {
+			al = *args.AccessList
+		}
+		data = &types.GaslessTx{
+			To:         args.To,
+			ChainID:    (*big.Int)(args.ChainID),
+			Nonce:      uint64(*args.Nonce),
+			Gas:        uint64(*args.Gas),
+			GasFeeCap:  (*big.Int)(args.MaxFeePerGas),
+			GasTipCap:  (*big.Int)(args.MaxPriorityFeePerGas),
+			Value:      (*big.Int)(args.Value),
+			Data:       args.data(),
+			AccessList: al,
 		}
 
 	default:

@@ -19,6 +19,7 @@ import (
 	"github.com/ava-labs/subnet-evm/trie"
 	"github.com/ava-labs/subnet-evm/vmerrs"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 )
 
 var (
@@ -340,7 +341,7 @@ func (eng *DummyEngine) verifyBlockFee(
 		// Minimum Fee = 10 gwei * 1M gas (minimum fee that would have been accepted for this transaction)
 		// Fee Premium = 90 gwei
 		// Total Overpaid = 90 gwei * 1M gas
-
+		log.Info("txFeePremium", "txFeePremium", txFeePremium, "gasUsed", receipt.GasUsed)
 		blockFeeContribution.Mul(txFeePremium, gasUsed.SetUint64(receipt.GasUsed))
 		totalBlockFee.Add(totalBlockFee, blockFeeContribution)
 	}
@@ -425,9 +426,11 @@ func (eng *DummyEngine) FinalizeAndAssemble(chain consensus.ChainHeaderReader, h
 			txs,
 			receipts,
 		); err != nil {
+			log.Info("TEST YESERROR", "err", err)
 			return nil, err
 		}
 	}
+	log.Info("TEST NOERROR")
 	// commit the final state root
 	header.Root = state.IntermediateRoot(chain.Config().IsEIP158(header.Number))
 

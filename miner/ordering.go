@@ -33,6 +33,7 @@ import (
 	"github.com/ava-labs/subnet-evm/core/txpool"
 	"github.com/ava-labs/subnet-evm/core/types"
 	"github.com/ethereum/go-ethereum/common"
+	"github.com/ethereum/go-ethereum/log"
 	"github.com/holiman/uint256"
 )
 
@@ -49,7 +50,7 @@ type txWithMinerFee struct {
 func newTxWithMinerFee(tx *txpool.LazyTransaction, from common.Address, baseFee *uint256.Int) (*txWithMinerFee, error) {
 	tip := new(uint256.Int).Set(tx.GasTipCap)
 	if baseFee != nil {
-		if tx.GasFeeCap.Cmp(baseFee) < 0 {
+		if tx.GasFeeCap.Cmp(baseFee) < 0 && tx.Tx.Type() != types.GaslessTxType {
 			return nil, types.ErrGasFeeCapTooLow
 		}
 		tip = new(uint256.Int).Sub(tx.GasFeeCap, baseFee)
@@ -119,6 +120,7 @@ func newTransactionsByPriceAndNonce(signer types.Signer, txs map[common.Address]
 	for from, accTxs := range txs {
 		wrapped, err := newTxWithMinerFee(accTxs[0], from, baseFeeUint)
 		if err != nil {
+			log.Error("Failed to calculate effective miner gasTipCap", "from", from, "err", err)
 			delete(txs, from)
 			continue
 		}

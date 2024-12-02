@@ -229,7 +229,8 @@ func (api *ExternalSigner) SignTx(account accounts.Account, tx *types.Transactio
 		args.MaxFeePerGas = (*hexutil.Big)(tx.GasFeeCap())
 		args.MaxPriorityFeePerGas = (*hexutil.Big)(tx.GasTipCap())
 	case types.GaslessTxType:
-		args.GasPrice = (*hexutil.Big)(tx.GasPrice())
+		args.MaxFeePerGas = (*hexutil.Big)(common.Big0)
+		args.MaxPriorityFeePerGas = (*hexutil.Big)(common.Big0)
 	default:
 		return nil, fmt.Errorf("unsupported tx type %d", tx.Type())
 	}
